@@ -3,7 +3,8 @@ import 'dotenv/config';
 import express from 'express';
 import bodyParser from 'body-parser';
 import mongoose from 'mongoose';
-import encrypt from 'mongoose-encryption';
+import md5 from 'md5';
+
 
 const port = process.env.PORT || 3000;
 
@@ -15,8 +16,6 @@ const userSchema = new mongoose.Schema({
     username: String,
     password: String
 });
-
-userSchema.plugin(encrypt, { secret: process.env.ENC_K, encryptedFields: ['password'] });
 
 const User = mongoose.model("User", userSchema);
 
@@ -43,7 +42,7 @@ app.get("/logout", function(req, res){
 
 app.post("/register", async (req, res) => {
     const username = req.body.username;
-    const password = req.body.password;
+    const password = md5(req.body.password);
     
     const user = new User({
         username: username,
@@ -58,10 +57,9 @@ app.post("/register", async (req, res) => {
     res.render("secrets");
 });
 
-
 app.post("/login", async (req, res) => {
     const username = req.body.username;
-    const password = req.body.password;
+    const password = md5(req.body.password);
 
     try {
         const user = await User.findOne({ username: username }).exec();
@@ -71,16 +69,13 @@ app.post("/login", async (req, res) => {
         if (password !== user.password) {
             throw new Error("password wrong");
         }
-        res.render("/secrets");
+        res.render("secrets");
     } catch (error) {
         console.log(error);
         res.redirect("login");
     }
 
 });
-
-
-
 
 app.listen(port, function() {
     console.log(`Server started on port ${port}`);
