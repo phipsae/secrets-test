@@ -3,7 +3,10 @@ import 'dotenv/config';
 import express from 'express';
 import bodyParser from 'body-parser';
 import mongoose from 'mongoose';
-import encrypt from 'mongoose-encryption';
+import session from 'express-session';
+import passport from 'passport';
+import passportLocalMongoose from 'passport-local-mongoose';
+
 
 const port = process.env.PORT || 3000;
 
@@ -11,18 +14,34 @@ await mongoose.connect('mongodb://127.0.0.1:27017/secrets');
 
 const app = express();
 
+
+app.use(bodyParser.urlencoded({extended: true}));
+app.set("view engine", 'ejs'); //don't need in render .ejs ending anymore
+app.use(express.static("public"));
+
+app.use(session({
+    secret: 'Our little secret',
+    resave: false,
+    saveUninitialized: false
+}));
+
+app.use(passport.initialize());
+app.use(passport.session());
+
+
 const userSchema = new mongoose.Schema({
     username: String,
     password: String
 });
 
-userSchema.plugin(encrypt, { secret: process.env.ENC_K, encryptedFields: ['password'] });
+userSchema.plugin(passportLocalMongoose);
 
 const User = mongoose.model("User", userSchema);
 
-app.use(bodyParser.urlencoded({extended: true}));
-app.set("view engine", 'ejs'); //don't need in render .ejs ending anymore
-app.use(express.static("public"));
+passport.use(User.createStrategy());
+
+passport.serializeUser(User.serializeUser());
+passport.deserializeUser(User.deserializeUser());
 
 app.get("/", async (req, res) => {
     res.render("home");
@@ -38,24 +57,36 @@ app.get("/register", async (req, res) => {
 });
 
 app.get("/logout", function(req, res){
-    res.redirect("/");
+    req.logout(function(err) {
+        if (err) { return next(err); }
+        res.redirect("/");
+      });
+  });
+
+  app.get("/secrets", function(req, res){
+    if (req.isAuthenticated()) {
+        res.render("secrets");
+    } else {
+        res.redirect("/login");
+    }
   });
 
 app.post("/register", async (req, res) => {
     const username = req.body.username;
     const password = req.body.password;
-    
-    const user = new User({
-        username: username,
-        password: password
-    });
 
-    try { 
-        user.save();
-    } catch (error) {
-        console.log(error);
-    }
-    res.render("secrets");
+    User.register({username: username, active: false}, password, function(err, user) {
+        if (err) { 
+            console.log(err) 
+            res.redirect("/register");
+        } else {
+            passport.authenticate("local")(req, res, function() {
+                res.redirect("/secrets");
+            });
+        }
+      
+      });
+   
 });
 
 
@@ -63,23 +94,19 @@ app.post("/login", async (req, res) => {
     const username = req.body.username;
     const password = req.body.password;
 
-    try {
-        const user = await User.findOne({ username: username }).exec();
-        if (!user) {
-            throw new Error("user not found");
-        }
-        if (password !== user.password) {
-            throw new Error("password wrong");
-        }
-        res.render("/secrets");
-    } catch (error) {
-        console.log(error);
-        res.redirect("login");
-    }
+    const user = new User ({
+        username: username,
+        password: password
+    });
 
+    req.login(user, function(err) {
+        if (err) { return next(err); } else {
+            passport.authenticate("local")(req, res, function() {
+                res.redirect("/secrets");
+            });
+        }
+      });
 });
-
-
 
 
 app.listen(port, function() {
